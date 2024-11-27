@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flappy Bird NFT Ecosystem</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #game-container {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      height: 80vh;
+      background-color: #70c5ce;
+      border: 2px solid #000;
+      margin-top: 20px;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+    #connect-wallet {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      padding: 10px 15px;
+      font-size: 14px;
+      background-color: #1e88e5;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #connect-wallet:hover {
+      background-color: #1565c0;
+    }
+    #wallet-info {
+      text-align: center;
+      margin-top: 10px;
+    }
+    #wallet-info p {
+      margin: 5px 0;
+      font-size: 14px;
+    }
+    #marketplace {
+      margin-top: 20px;
+      text-align: center;
+    }
+    #marketplace button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 14px;
+      cursor: pointer;
+      background-color: #4caf50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+    }
+    #marketplace button:hover {
+      background-color: #388e3c;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <button id="connect-wallet">Connect Wallet</button>
+    <canvas id="flappyBird"></canvas>
+  </div>
+  <div id="wallet-info">
+    <p id="wallet-address">Wallet Address: Not Connected</p>
+    <p id="wallet-balance">Balance: 0 SOL</p>
+  </div>
+  <div id="marketplace">
+    <h3>Marketplace</h3>
+    <button id="buy-skin">Buy Skin (0.2 SOL)</button>
+    <button id="buy-extra-life">Buy Extra Life (0.1 SOL)</button>
+  </div>
+
+  <script type="module">
+    import { Connection, PublicKey, clusterApiUrl, Transaction, SystemProgram } from "https://cdn.jsdelivr.net/npm/@solana/web3.js/+esm";
+
+    const connection = new Connection(clusterApiUrl("mainnet-beta")); // Mainnet connection
+    const connectButton = document.getElementById("connect-wallet");
+    const walletAddressEl = document.getElementById("wallet-address");
+    const walletBalanceEl = document.getElementById("wallet-balance");
+    const buySkinButton = document.getElementById("buy-skin");
+    const buyExtraLifeButton = document.getElementById("buy-extra-life");
+
+    let walletPublicKey = null;
+    let extraLife = false;
+    let customSkin = false;
+    let earnedReward = false;
+    let score = 0;
+
+    const rewardAddress = new PublicKey("3B6cEZf5q6zppm5PT9zG6GpwBqVEuQi3AtBrVm2jiEtp"); // Your wallet address for transaction fee
+
+    async function connectWallet() {
+      if (window.solana && window.solana.isPhantom) {
+        try {
+          const response = await window.solana.connect();
+          walletPublicKey = new PublicKey(response.publicKey.toString());
+          walletAddressEl.textContent = `Wallet Address: ${walletPublicKey}`;
+          await updateBalance();
+        } catch (err) {
+          console.error("Wallet connection failed:", err);
+        }
+      } else {
+        alert("Phantom Wallet not found! Please install it from https://phantom.app/");
+      }
+    }
+
+    async function updateBalance() {
+      if (walletPublicKey) {
+        try {
+          const balance = await connection.getBalance(walletPublicKey);
+          walletBalanceEl.textContent = `Balance: ${(balance / 1e9).toFixed(2)} SOL`;
+        } catch (err) {
+          console.error("Failed to fetch balance:", err);
+        }
+      }
+    }
+
+    async function confirmUpgrade(amount, upgradeType) {
+      if (!walletPublicKey) {
+        alert("Connect your wallet first!");
+        return;
+      }
+
+      const transactionFee = amount * 0.05; // 5% fee
+      const amountAfterFee = amount - transactionFee;
+
+      try {
+        const transaction = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: walletPublicKey,
+            toPubkey: rewardAddress, // Transaction fee sent to your wallet
+            lamports: transactionFee * 1e9,
+          }),
+          SystemProgram.transfer({
+            fromPubkey: walletPublicKey,
+            toPubkey: walletPublicKey, // Main purchase transaction
+            lamports: amountAfterFee * 1e9,
+          })
+        );
+
+        transaction.feePayer = walletPublicKey;
+        const { blockhash } = await connection.getRecentBlockhash();
+        transaction.recentBlockhash = blockhash;
+
+        const signed = await window.solana.signTransaction(transaction);
+        const signature = await connection.sendRawTransaction(signed.serialize());
+        await connection.confirmTransaction(signature);
+        alert(`${upgradeType} successfully activated!`);
+        if (upgradeType === "Extra Life") extraLife = true;
+        if (upgradeType === "Custom Skin") customSkin = true;
+        await updateBalance();
+      } catch (err) {
+        console.error("Transaction failed:", err);
+      }
+    }
+
+    async function rewardPlayer() {
+      if (!walletPublicKey) {
+        alert("Connect your wallet to receive rewards.");
+        return;
+      }
+
+      if (score >= 1000 && !earnedReward) {
+        const rewardAmount = 0.01; // Reward amount
+        try {
+          const transaction = new Transaction().add(
+            SystemProgram.transfer({
+              fromPubkey: walletPublicKey,
+              toPubkey: walletPublicKey,
+              lamports: rewardAmount * 1e9,
+            })
+          );
+
+          transaction.feePayer = walletPublicKey;
+          const { blockhash } = await connection.getRecentBlockhash();
+          transaction.recentBlockhash = blockhash;
+
+          const signed = await window.solana.signTransaction(transaction);
+          const signature = await connection.sendRawTransaction(signed.serialize());
+          await connection.confirmTransaction(signature);
+          alert(`Congratulations! You earned ${rewardAmount} SOL for reaching score 1000.`);
+          earnedReward = true;
+        } catch (err) {
+          console.error("Reward transaction failed:", err);
+        }
+      }
+    }
+
+    connectButton.addEventListener("click", connectWallet);
+    buySkinButton.addEventListener("click", () => confirmUpgrade(0.2, "Custom Skin"));
+    buyExtraLifeButton.addEventListener("click", () => confirmUpgrade(0.1, "Extra Life"));
+
+    const canvas = document.getElementById("flappyBird");
+    const ctx = canvas.getContext("2d");
+    const bird = { x: 50, y: 150, radius: 15, gravity: 1.5, lift: -20, velocity: 0 };
+    const pipes = [];
+    const pipeWidth = 50;
+    const pipeGap = 120;
+    let frameCount = 0;
+
+    function drawBird() {
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+      ctx.fillStyle = customSkin ? 'red' : 'yellow';
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function updateBird() {
+      bird.velocity += bird.gravity;
+      bird.y += bird.velocity;
+      if (bird.y + bird.radius > canvas.height) {
+        bird.y = canvas.height - bird.radius;
+        bird.velocity = 0;
+      }
+      if (bird.y - bird.radius < 0) {
+        bird.y = bird.radius;
+        bird.velocity = 0;
+      }
+    }
+
+    function updatePipes() {
+      if (frameCount % 90 === 0) {
+        const pipeTopHeight = Math.random() * (canvas.height - pipeGap);
+        pipes.push({ x: canvas.width, topHeight: pipeTopHeight });
+      }
+
+      for (let i = 0; i < pipes.length; i++) {
+        pipes[i].x -= 3;
+        if (pipes[i].x + pipeWidth < 0) {
+          pipes.splice(i, 1);
+          i--;
+        }
+      }
+    }
+
+    function drawPipes() {
+      for (let pipe of pipes) {
+        ctx.fillStyle = 'green';
+        ctx.fillRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+        ctx.fillRect(pipe.x, pipe.topHeight + pipeGap, pipeWidth, canvas.height - pipe.topHeight - pipeGap);
+      }
+    }
+
+    function drawScore() {
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "black";
+      ctx.fillText("Score: " + score, canvas.width - 100, 30);
+    }
+
+    function gameLoop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBird();
+      updateBird();
+      drawPipes();
+      updatePipes();
+      drawScore();
+      rewardPlayer();
+      frameCount++;
+      score++;
+      requestAnimationFrame(gameLoop);
+    }
+
+    canvas.width = 480;
+    canvas.height = 320;
+    gameLoop();
+  </script>
+</body>
+</html>
